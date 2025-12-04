@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEA_RIFFIC! - Sip, Savour, Repeat.</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons for nice, clean icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <!-- Load Firebase/Firestore Modules -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, collection, setDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase Configuration Setup
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let firebaseConfig = null;
+        try {
+            firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        } catch(e) {
+            console.error("Failed to parse firebase config:", e);
+        }
+
+        let app, db, auth, userId = null;
+
+        window.firebaseInit = async () => {
+            if (!firebaseConfig) {
+                console.error("Firebase configuration is missing or invalid.");
+                document.getElementById('db-status').textContent = 'Error: DB Config Missing';
+                document.getElementById('db-status').classList.replace('text-yellow-500', 'text-red-500');
+                return;
+            }
+
+            try {
+                // 1. Initialize Firebase
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('error'); // Only log errors for production
+
+                // Make them globally available for our main script
+                window.db = db;
+
+                // 2. Handle Authentication (using the provided token or anonymous sign-in)
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // 3. Auth State Change Listener to get user ID
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        window.userId = userId;
+                        window.appId = appId; // Make appId available
+                        document.getElementById('db-status').textContent = `DB Ready (User: ${userId.substring(0, 8)}...)`;
+                        document.getElementById('db-status').classList.replace('text-yellow-500', 'text-green-500');
+                        document.getElementById('user-id-display').textContent = `User ID: ${userId}`;
+                    } else {
+                        console.log("No user signed in.");
+                        document.getElementById('db-status').textContent = 'DB Auth Error';
+                        document.getElementById('db-status').classList.replace('text-yellow-500', 'text-red-500');
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+                document.getElementById('db-status').textContent = 'Error: DB Init Failed';
+                document.getElementById('db-status').classList.replace('text-yellow-500', 'text-red-500');
+            }
+        };
+
+        // Call the initialization function on load
+        window.addEventListener('load', window.firebaseInit);
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+        :root {
+            --primary-color: #556b2f; /* Dark Olive Green */
+            --secondary-color: #f5f5dc; /* Beige/Cream */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--secondary-color);
+            color: #333;
+        }
+        h1, h2 {
+            font-family: 'Playfair Display', serif;
+        }
+        .text-tea-primary { color: var(--primary-color); }
+        .bg-tea-primary { background-color: var(--primary-color); }
+        .hover-tea-primary:hover { background-color: #708238; } /* Lighter primary */
+        .shadow-tea { box-shadow: 0 10px 15px -3px rgba(85, 107, 47, 0.2), 0 4px 6px -2px rgba(85, 107, 47, 0.1); }
+        .menu-table th {
+            text-align: left;
+            padding: 0.75rem 0.5rem;
+            background-color: #f7f7e8;
+            font-size: 0.875rem; /* sm */
+        }
+        .menu-table td {
+            padding: 0.75rem 0.5rem;
+        }
+        .menu-table tr:nth-child(even) {
+            background-color: #fcfcf5;
+        }
+
+        /* Accordion Custom Styling */
+        .accordion-item {
+            border: 1px solid #ddd;
+            border-radius: 0.75rem; /* rounded-xl */
+            overflow: hidden;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        .accordion-header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background-color: #ffffff;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        .accordion-header:hover {
+            background-color: #f9f9f9;
+        }
+        .accordion-content {
+            padding: 0 1.5rem 0 1.5rem; /* Only vertical padding changes with expand/collapse */
+            transition: max-height 0.4s ease-in-out, padding 0.4s ease-in-out;
+            overflow: hidden;
+            max-height: 0; /* Starts collapsed */
+            background-color: #f7f7e8;
+        }
+        .accordion-content.expanded {
+            max-height: 2000px; /* Large enough value to cover all content */
+            padding-top: 1.5rem;
+            padding-bottom: 1.5rem;
+        }
+
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.6);
+        }
+        
+    </style>
+</head>
+<body class="min-h-screen antialiased">
+
+    <!-- Header & Navigation -->
+    <header class="bg-tea-primary shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-white tracking-wider">TEA_RIFFIC!</h1>
+            <div class="flex items-center space-x-4">
+                <button onclick="document.getElementById('cart-sidebar').classList.toggle('translate-x-full');" class="relative p-2 rounded-full bg-white text-tea-primary hover:bg-gray-100 transition duration-150 shadow-md" aria-label="View Cart">
+                    <i data-lucide="shopping-cart" class="w-6 h-6"></i>
+                    <span id="cart-count" class="absolute -top-1 -right-1 text-xs font-bold w-5 h-5 flex items-center justify-center bg-red-600 text-white rounded-full transition-all duration-300">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Hero Section - Slogan Updated -->
+        <section class="text-center py-16 bg-white rounded-xl shadow-tea mb-12">
+            <h2 class="text-5xl md:text-6xl font-extrabold text-tea-primary mb-4">Sip, Savour, Repeat.</h2>
+            <p class="text-xl text-gray-600">Your daily dose of comfort and flavor, from refreshing teas to hearty bites.</p>
+        </section>
+
+        <!-- Menu Section -->
+        <section id="menu" class="bg-white p-6 md:p-10 rounded-xl shadow-tea">
+            <h2 class="text-4xl font-bold text-center text-tea-primary mb-8">What you'd like to order?</h2>
+
+            <div id="menu-sections" class="space-y-4">
+                <!-- Menu sections (Accordions) will be rendered here by JavaScript -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Cart Sidebar -->
+    <div id="cart-sidebar" class="fixed right-0 top-0 h-full w-full md:w-96 bg-white shadow-2xl z-[60] transform translate-x-full transition-transform duration-300 flex flex-col">
+        <div class="p-6 border-b flex justify-between items-center bg-tea-primary text-white">
+            <h3 class="text-2xl font-bold">Your Order</h3>
+            <button onclick="document.getElementById('cart-sidebar').classList.add('translate-x-full');" class="p-1 rounded-full hover:bg-white hover:text-tea-primary transition" aria-label="Close Cart">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <div id="cart-items-container" class="p-4 flex-grow overflow-y-auto space-y-3">
+            <p id="empty-cart-message" class="text-center text-gray-500 mt-10">Your cart is empty.</p>
+            <!-- Cart items will be rendered here -->
+        </div>
+
+        <div class="p-6 border-t space-y-3">
+            <div class="flex justify-between font-bold text-lg">
+                <span>Total:</span>
+                <span id="cart-total" class="text-tea-primary">₹0</span>
+            </div>
+            <button onclick="checkout()" id="checkout-btn" class="w-full py-3 bg-red-600 text-white font-semibold rounded-lg shadow-md hover:bg-red-700 transition duration-150 disabled:opacity-50" disabled>
+                Proceed to Checkout
+            </button>
+        </div>
+    </div>
+
+    <!-- Checkout Modal -->
+    <div id="checkout-modal" class="fixed inset-0 modal-overlay z-[70] hidden items-center justify-center p-4" onclick="if(event.target === this) closeModal('checkout-modal')">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md transform transition-all duration-300 scale-95 opacity-0">
+            <h3 class="text-2xl font-bold text-tea-primary mb-4 border-b pb-2">Finalize Order</h3>
+
+            <form id="checkout-form" class="space-y-4">
+                <div>
+                    <label for="customer-name" class="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                    <input type="text" id="customer-name" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-tea-primary focus:border-tea-primary">
+                </div>
+                <div>
+                    <label for="table-number" class="block text-sm font-medium text-gray-700 mb-1">Table / Order Type</label>
+                    <select id="table-number" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-tea-primary focus:border-tea-primary">
+                        <option value="" disabled selected>Select an option</option>
+                        <option value="B1">Table B1</option>
+                        <option value="B2">Table B2</option>
+                        <option value="B3">Table B3</option>
+                        <option value="S4">Table S4</option>
+                        <option value="S5">Table S5</option>
+                        <option value="S6">Table S6</option>
+                        <option value="O7">Table O7</option>
+                        <option value="TAKEAWAY">TAKEAWAY (Extra ₹5/item for packing)</option>
+                    </select>
+                </div>
+                <button type="submit" class="w-full py-3 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 transition duration-150">
+                    Confirm & Send Order
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Invoice Modal -->
+    <div id="invoice-modal" class="fixed inset-0 modal-overlay z-[80] hidden items-center justify-center p-4" onclick="if(event.target === this) closeModal('invoice-modal')">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-lg transform transition-all duration-300 scale-95 opacity-0">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 class="text-2xl font-bold text-green-700">Order Confirmed!</h3>
+                <button onclick="closeModal('invoice-modal')" class="p-1 rounded-full text-gray-500 hover:bg-gray-100 transition" aria-label="Close Invoice">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+
+            <div class="text-center bg-yellow-100 text-yellow-800 p-4 rounded-lg mb-4 font-semibold text-lg">
+                <i data-lucide="wallet" class="inline-block w-6 h-6 mr-2"></i>
+                <span class="align-middle">PLEASE PAY AT THE COUNTER</span>
+            </div>
+
+            <div id="invoice-details" class="space-y-2 text-sm">
+                <!-- Invoice details will be populated here -->
+            </div>
+
+            <h4 class="text-xl font-bold text-tea-primary mt-6 mb-3 border-t pt-3">Items Ordered:</h4>
+            <div id="invoice-items" class="space-y-1 text-gray-600 max-h-40 overflow-y-auto border p-2 rounded-lg">
+                <!-- Ordered items list -->
+            </div>
+            
+            <!-- Price Breakdown Section -->
+            <div class="mt-4 pt-4 border-t-2 border-dashed border-gray-300 space-y-1">
+                <div class="flex justify-between text-base">
+                    <span>Subtotal:</span>
+                    <span id="invoice-subtotal"></span>
+                </div>
+                <div id="invoice-packing-charge-row" class="flex justify-between text-base hidden">
+                    <span class="font-semibold text-red-600">Packing Charge (₹5 x <span id="item-count">0</span> items):</span>
+                    <span id="invoice-packing-charge" class="font-semibold text-red-600"></span>
+                </div>
+            </div>
+
+            <div class="flex justify-between font-bold text-xl mt-2 pt-2 border-t border-gray-400">
+                <span>Grand Total:</span>
+                <span id="invoice-total" class="text-red-600"></span>
+            </div>
+
+            <a id="whatsapp-link-btn" target="_blank" class="block text-center mt-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 transition duration-150">
+                <i data-lucide="message-square" class="inline-block w-5 h-5 mr-2"></i> View WhatsApp Message
+            </a>
+            <button onclick="window.location.reload()" class="w-full py-2 mt-2 text-tea-primary border border-tea-primary rounded-lg hover:bg-tea-primary hover:text-white transition duration-150">
+                Start New Order
+            </button>
+        </div>
+    </div>
+
+    <!-- Footer & Partners Section -->
+    <footer class="bg-gray-800 text-white mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 border-b pb-8 mb-8">
+                <!-- Contact Info -->
+                <div class="space-y-3">
+                    <h4 class="text-xl font-bold mb-2">Contact TEA_RIFFIC!</h4>
+                    <p><i data-lucide="phone" class="inline-block w-4 h-4 mr-2"></i> <a href="tel:+919707886631">+91 97078 86631</a></p>
+                    <p><i data-lucide="mail" class="inline-block w-4 h-4 mr-2"></i> <a href="mailto:teariffic051@gmail.com">teariffic051@gmail.com</a></p>
+                    <p><i data-lucide="map-pin" class="inline-block w-4 h-4 mr-2"></i> Find us on Google Maps</p>
+                </div>
+
+                <!-- Order Partners -->
+                <div class="space-y-3">
+                    <h4 class="text-xl font-bold mb-2">Order Online</h4>
+                    <a href="https://www.swiggy.com/city/silchar/tea-riffic-tarapur-rest1178601" target="_blank" class="block py-2 px-4 rounded-lg bg-red-500 hover:bg-red-600 transition text-center font-semibold">
+                        Order on Swiggy
+                    </a>
+                    <a href="https://zomato.onelink.me/xqzv/btr85tho" target="_blank" class="block py-2 px-4 rounded-lg bg-orange-500 hover:bg-orange-600 transition text-center font-semibold">
+                        Order on Zomato
+                    </a>
+                </div>
+
+                <!-- Social & Rating -->
+                <div class="space-y-3">
+                    <h4 class="text-xl font-bold mb-2">Connect & Rate Us</h4>
+                    <a href="https://maps.app.goo.gl/ZicC5HYnrRpCzkpx9" target="_blank" class="flex items-center space-x-2 py-2 px-4 rounded-lg bg-blue-500 hover:bg-blue-600 transition font-semibold">
+                        <i data-lucide="star" class="w-5 h-5"></i>
+                        <span>Rate Us on Google Maps</span>
+                    </a>
+                    <a href="https://www.instagram.com/teariffic2025?igsh=ajhkN2ZrZnVnMzI3" target="_blank" class="flex items-center space-x-2 py-2 px-4 rounded-lg bg-pink-500 hover:bg-pink-600 transition font-semibold">
+                        <i data-lucide="instagram" class="w-5 h-5"></i>
+                        <span>Follow on Instagram</span>
+                    </a>
+                    <a href="https://wa.me/919707886631" target="_blank" class="flex items-center space-x-2 py-2 px-4 rounded-lg bg-green-500 hover:bg-green-600 transition font-semibold">
+                        <i data-lucide="message-square" class="w-5 h-5"></i>
+                        <span>WhatsApp Us</span>
+                    </a>
+                </div>
+            </div>
+            <div class="text-center text-sm text-gray-400">
+                <p>&copy; 2024 TEA_RIFFIC!. All rights reserved.</p>
+                <p id="db-status" class="mt-1 text-sm text-yellow-500">Database Status: Initializing...</p>
+                <p id="user-id-display" class="mt-1 text-xs text-gray-500"></p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Ensure Lucide icons are rendered after DOM manipulation
+        window.addEventListener('load', () => {
+            lucide.createIcons();
+        });
+
+        const MENU_DATA = {
+            '🫖 TEA': [
+                { item: 'Red Tea', price: 10 },
+                { item: 'Ginger Tea', price: 20 },
+                { item: 'Green Tea', price: 20 },
+                { item: 'Lemon Tea', price: 20 },
+                { item: 'Masala Tea', price: 25 },
+                { item: 'Iced Tea', price: 60 },
+                { item: 'Matcha Tea', price: 80 }
+            ],
+            '☕ COFFEE': [
+                { item: 'Black Coffee', price: { Medium: 20, Large: '—' } },
+                { item: 'Hot Coffee', price: { Medium: 40, Large: '—' } },
+                { item: 'Cold Coffee', price: { Medium: 70, Large: '—' } },
+                { item: 'Cold Coffee with Ice-cream', price: { Medium: 100, Large: 120 } }
+            ],
+            '🥪 TOASTS & OMELETTES': [
+                { item: 'Bread Toast', price: 40 },
+                { item: 'Milk Toast', price: 60 },
+                { item: 'Chilli Cheese Toast', price: 70 },
+                { item: 'Double Egg Omelette', price: 80 },
+                { item: 'Bread Omelette', price: 60 },
+                { item: 'Cheese Omelette', price: 80 }
+            ],
+            '🥤 BEVERAGES': [
+                { item: 'Fresh Lime Soda', price: { Medium: 50, Large: 70 } },
+                { item: 'Masala Lemonade', price: { Medium: 60, Large: 90 } },
+                { item: 'Masala Cold Drink', price: { Medium: 60, Large: 90 } },
+                { item: 'Virgin Mojito', price: { Medium: 70, Large: 100 } },
+                { item: 'Hot Chocolate', price: { Medium: 80, Large: 120 } },
+                { item: 'Bourbon Shake', price: { Medium: 100, Large: 150 } },
+                { item: 'Oreo Shake', price: { Medium: 100, Large: 150 } },
+                { item: 'Butterscotch Shake', price: { Medium: 100, Large: 150 } },
+                { item: 'Vanilla Shake', price: { Medium: 100, Large: 150 } },
+                { item: 'Cold Chocolate Shake', price: { Medium: 120, Large: 150 } },
+                { item: 'Dark Chocolate Shake', price: { Medium: 120, Large: 150 } },
+                { item: 'Kit-Kat Shake', price: { Medium: 100, Large: 150 } },
+                { item: 'Oreo Chocolate Shake', price: { Medium: 110, Large: 160 } },
+                { item: 'Coffee Oreo Shake', price: { Medium: 110, Large: 160 } },
+                { item: 'Lotus Biscoff Shake', price: { Medium: 180, Large: 260 } }
+            ],
+            '🍝 PASTA (Half / Full)': [
+                { item: 'Red Sauce Pasta', price: { Half: 100, Full: 190 } },
+                { item: 'White Sauce Pasta', price: { Half: 110, Full: 210 } },
+                { item: 'Mix Sauce Pasta', price: { Half: 130, Full: 250 } }
+            ],
+            '🍔 SANDWICHES & BURGERS': [
+                { item: 'Veg Sandwich', price: 55 },
+                { item: 'Veg Cheese Sandwich', price: 75 },
+                { item: 'Chicken Sandwich', price: 90 },
+                { item: 'Chicken Cheese Sandwich', price: 100 },
+                { item: 'Veg Burger', price: 55 },
+                { item: 'Veg Cheese Burger', price: 75 },
+                { item: 'Chicken Burger', price: 90 },
+                { item: 'Chicken Cheese Burger', price: 100 }
+            ],
+            '🍚 FRIED RICE (Half / Full)': [
+                { item: 'Veg Fried Rice', price: { Half: 50, Full: 90 } },
+                { item: 'Egg Fried Rice', price: { Half: 70, Full: 130 } },
+                { item: 'Chicken Fried Rice', price: { Half: 85, Full: 160 } },
+                { item: 'Chicken Egg Fried Rice', price: { Half: 100, Full: 190 } }
+            ],
+            '🌯 ROLLS': [
+                { item: 'Veg Roll', price: 50 },
+                { item: 'Egg Roll', price: 70 },
+                { item: 'Chicken Roll', price: 90 },
+                { item: 'Chicken Egg Roll', price: 100 }
+            ],
+            '🍜 MAGGI (Half / Full)': [
+                { item: 'Fried Maggi', price: { Half: 90, Full: 130 } },
+                { item: 'Fried Cheese Maggi', price: { Half: 110, Full: 140 } },
+                { item: 'Egg Fried Maggi', price: { Half: 110, Full: 170 } },
+                { item: 'Egg Fried Cheese Maggi', price: { Half: 130, Full: 180 } },
+                { item: 'Chicken Fried Maggi', price: { Half: 85, Full: 160 } },
+                { item: 'Chicken Egg Fried Maggi', price: { Half: 100, Full: 190 } }
+            ],
+            '🍜 CHOW (Half / Full)': [
+                { item: 'Veg Chow', price: { Half: 50, Full: 90 } },
+                { item: 'Egg Chow', price: { Half: 70, Full: 130 } },
+                { item: 'Chicken Chow', price: { Half: 85, Full: 160 } },
+                { item: 'Chicken Egg Chow', price: { Half: 100, Full: 190 } }
+            ],
+            '🍟 QUICK BITES (Half / Full)': [
+                { item: 'Wai Wai Bhel', price: { Half: 50, Full: 90 } },
+                { item: 'Crispy Corn', price: { Half: 70, Full: 130 } },
+                
+            ],
+            '💧 MINERAL WATER': [
+                { item: '750 ML WATER BOTTLE', price: 10 }
+            ]
+        };
+
+        let cart = [];
+
+        // --- Utility Functions ---
+
+        /**
+         * Toggles the visibility of an accordion content pane.
+         * @param {HTMLElement} headerElement - The button element clicked.
+         */
+        function toggleAccordion(headerElement) {
+            const content = headerElement.nextElementSibling;
+            const icon = headerElement.querySelector('[data-lucide="chevron-down"]');
+            
+            if (content.classList.contains('expanded')) {
+                // Collapse
+                content.classList.remove('expanded');
+                icon.style.transform = 'rotate(0deg)';
+                headerElement.classList.remove('border-b', 'border-tea-primary/30');
+            } else {
+                // Expand
+                content.classList.add('expanded');
+                icon.style.transform = 'rotate(180deg)';
+                headerElement.classList.add('border-b', 'border-tea-primary/30');
+
+                // Optional: Collapse all other open accordions
+                document.querySelectorAll('.accordion-content.expanded').forEach(openContent => {
+                    if (openContent !== content) {
+                        openContent.classList.remove('expanded');
+                        openContent.previousElementSibling.querySelector('[data-lucide="chevron-down"]').style.transform = 'rotate(0deg)';
+                        openContent.previousElementSibling.classList.remove('border-b', 'border-tea-primary/30');
+                    }
+                });
+            }
+        }
+
+
+        /**
+         * Closes a modal and resets its visibility/transition classes.
+         * @param {string} id - The ID of the modal element.
+         */
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+            if (modal) {
+                const content = modal.children[0];
+                // Reverse transition
+                content.classList.replace('scale-100', 'scale-95');
+                content.classList.replace('opacity-100', 'opacity-0');
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                }, 300);
+            }
+        }
+
+        /**
+         * Opens a modal.
+         * @param {string} id - The ID of the modal element.
+         */
+        function openModal(id) {
+            const modal = document.getElementById(id);
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                setTimeout(() => {
+                    const content = modal.children[0];
+                    content.classList.replace('scale-95', 'scale-100');
+                    content.classList.replace('opacity-0', 'opacity-100');
+                }, 10); // Small delay to allow 'flex' display to apply
+            }
+        }
+
+        // --- Menu Rendering ---
+
+        /**
+         * Generates the HTML for a menu section as an accordion item.
+         * @param {string} title - The category title (e.g., '🫖 TEA').
+         * @param {Array<Object>} items - The list of items in the category.
+         * @returns {string} The HTML string for the section.
+         */
+        function renderMenuSection(title, items) {
+            // Determine table headers based on the price structure
+            const firstItemPrice = items[0].price;
+            let headers = ['Item'];
+            let singlePrice = true;
+
+            if (typeof firstItemPrice === 'number') {
+                headers.push('Price');
+            } else if (typeof firstItemPrice === 'object') {
+                headers.push(...Object.keys(firstItemPrice));
+                singlePrice = false;
+            } else {
+                headers.push('Price');
+            }
+            
+            // Handle mineral water edge case or items with only single price
+            if (title === '💧 MINERAL WATER' || typeof items[0].price === 'number') {
+                 headers = ['Item', 'Price'];
+                 singlePrice = true;
+            }
+
+            const headerRow = headers.map(h => `<th class="font-semibold text-tea-primary">${h}</th>`).join('');
+            
+            const itemRows = items.map(itemData => {
+                const item = itemData.item;
+                const prices = itemData.price;
+                let priceCells = '';
+
+                if (singlePrice) {
+                    const price = typeof prices === 'number' ? prices : prices[headers[1]]; // Handles both single number and { "Price": 10 } structure
+                    priceCells = `<td class="font-medium">₹${price}</td>
+                                  <td class="w-24 text-right"><button onclick="addToCart('${title}', '${item}', ${price}, '')" class="text-xs bg-tea-primary text-white px-3 py-1 rounded-full hover-tea-primary transition duration-150">Add</button></td>`;
+                } else {
+                    // Multi-price items (Medium/Large or Half/Full)
+                    priceCells = Object.entries(prices).map(([size, price]) => {
+                        const displayPrice = price === '—' ? price : `₹${price}`;
+                        const isAvailable = price !== '—';
+                        const addButton = isAvailable 
+                            ? `<button onclick="addToCart('${title}', '${item}', ${price}, '${size}')" class="text-xs bg-tea-primary text-white px-3 py-1 rounded-full hover-tea-primary transition duration-150">Add</button>` 
+                            : '—';
+                        
+                        return `<td class="font-medium">
+                                    <div class="flex justify-between items-center">${displayPrice} ${isAvailable ? addButton : ''}</div>
+                                </td>`;
+                    }).join('');
+                }
+
+                return `
+                    <tr>
+                        <td class="font-medium text-gray-800">${item}</td>
+                        ${priceCells}
+                    </tr>
+                `;
+            }).join('');
+
+            // Accordion Structure
+            return `
+                <div class="accordion-item shadow-sm hover:shadow-md transition duration-300">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <h3 class="text-xl font-bold text-tea-primary">${title}</h3>
+                        <i data-lucide="chevron-down" class="w-6 h-6 text-tea-primary transition-transform duration-300" style="transform: rotate(0deg);"></i>
+                    </button>
+                    <div class="accordion-content">
+                        <div class="overflow-x-auto">
+                            <table class="menu-table w-full border-collapse">
+                                <thead>
+                                    <tr>
+                                        ${headerRow}
+                                        ${singlePrice ? `<th class="w-24 text-right">Action</th>` : ''}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${itemRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Initialize Menu Display on load
+        window.addEventListener('load', () => {
+            const menuContainer = document.getElementById('menu-sections');
+            let menuHTML = '';
+            for (const title in MENU_DATA) {
+                menuHTML += renderMenuSection(title, MENU_DATA[title]);
+            }
+            menuContainer.innerHTML = menuHTML;
+            // Re-render icons after adding new content
+            lucide.createIcons();
+        });
+
+        // --- Cart Management ---
+
+        /**
+         * Adds an item to the cart.
+         */
+        function addToCart(category, item, price, size) {
+            const label = size ? `${item} (${size})` : item;
+            // Use category+label to ensure items of the same name but different categories don't merge (e.g., 'Roll' and 'Roll')
+            const uniqueKey = category + label; 
+            const existingItem = cart.find(c => c.uniqueKey === uniqueKey);
+
+            if (existingItem) {
+                existingItem.quantity++;
+            } else {
+                cart.push({
+                    id: Date.now() + Math.random(), // Unique ID for keying
+                    uniqueKey,
+                    category,
+                    item,
+                    size,
+                    price,
+                    label,
+                    quantity: 1
+                });
+            }
+            updateCartUI();
+        }
+
+        /**
+         * Updates the quantity of an item in the cart.
+         */
+        function updateQuantity(id, change) {
+            const item = cart.find(c => c.id === id);
+            if (item) {
+                item.quantity += change;
+                if (item.quantity <= 0) {
+                    cart = cart.filter(c => c.id !== id);
+                }
+            }
+            updateCartUI();
+        }
+
+        /**
+         * Renders the cart items and updates totals/badges.
+         */
+        function updateCartUI() {
+            const container = document.getElementById('cart-items-container');
+            const totalElement = document.getElementById('cart-total');
+            const countElement = document.getElementById('cart-count');
+            const checkoutBtn = document.getElementById('checkout-btn');
+
+            let total = 0;
+            let totalCount = 0;
+
+            if (cart.length === 0) {
+                container.innerHTML = `<p class="text-center text-gray-500 mt-10">Your cart is empty.</p>`;
+                checkoutBtn.disabled = true;
+                totalElement.textContent = '₹0';
+                countElement.textContent = '0';
+                return;
+            }
+            
+            checkoutBtn.disabled = false;
+            let cartHTML = '';
+
+            cart.forEach(item => {
+                const itemTotal = item.price * item.quantity;
+                total += itemTotal;
+                totalCount += item.quantity;
+
+                cartHTML += `
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg shadow-sm">
+                        <div class="flex-grow">
+                            <p class="font-semibold text-gray-800">${item.label}</p>
+                            <p class="text-sm text-gray-500">₹${item.price} x ${item.quantity}</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="updateQuantity(${item.id}, -1)" class="p-1 text-red-500 hover:bg-red-100 rounded-full transition" aria-label="Decrease Quantity">
+                                <i data-lucide="minus" class="w-4 h-4"></i>
+                            </button>
+                            <span class="font-bold w-4 text-center">${item.quantity}</span>
+                            <button onclick="updateQuantity(${item.id}, 1)" class="p-1 text-green-500 hover:bg-green-100 rounded-full transition" aria-label="Increase Quantity">
+                                <i data-lucide="plus" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = cartHTML;
+            totalElement.textContent = `₹${total}`;
+            countElement.textContent = totalCount;
+            // Re-render icons for cart buttons
+            lucide.createIcons();
+        }
+
+        // --- Checkout Process ---
+
+        function checkout() {
+            if (cart.length === 0) return;
+            // Close sidebar and open checkout modal
+            document.getElementById('cart-sidebar').classList.add('translate-x-full');
+            openModal('checkout-modal');
+        }
+
+        document.getElementById('checkout-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const name = document.getElementById('customer-name').value.trim();
+            const tableNo = document.getElementById('table-number').value;
+
+            if (!name || !tableNo) {
+                console.error("Name and Table/Order Type are required.");
+                return;
+            }
+
+            processOrder(name, tableNo);
+        });
+
+        /**
+         * Finalizes the order, calculates packing charge, generates invoice details, sends via WhatsApp, and saves to Firestore.
+         */
+        async function processOrder(name, tableNo) {
+            closeModal('checkout-modal');
+
+            const now = new Date();
+            const date = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const time = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            // Invoice ID: YYMMDD-HHMMSS
+            const invoiceId = now.toISOString().replace(/[^0-9]/g, '').slice(2, 14); 
+
+            // Calculate Subtotal and Total Item Count
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const totalCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+            
+            // --- Packing Charge Logic ---
+            const IS_TAKEAWAY = tableNo === 'TAKEAWAY';
+            const PACKING_CHARGE_PER_ITEM = 5;
+            const packingCharge = IS_TAKEAWAY ? totalCount * PACKING_CHARGE_PER_ITEM : 0;
+            const grandTotal = subtotal + packingCharge;
+
+            const orderedItems = cart.map(item => ({
+                label: item.label,
+                quantity: item.quantity,
+                price: item.price,
+                subtotal: item.price * item.quantity
+            }));
+            
+            // --- 1. Prepare Invoice Data ---
+            const invoice = {
+                invoiceId,
+                customerName: name,
+                tableNumber: tableNo,
+                date,
+                time,
+                items: orderedItems,
+                subtotal: subtotal,
+                packingCharge: packingCharge,
+                total: grandTotal,
+                totalCount: totalCount,
+                phoneNumber: "+919707886631"
+            };
+
+            // --- 2. Save to Firestore (Backend) ---
+            if (window.db && window.userId && window.appId) {
+                try {
+                    const { getFirestore, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+                    const db = getFirestore(window.db.app);
+                    // Public path: /artifacts/{appId}/public/data/orders
+                    const ordersCollectionPath = `artifacts/${window.appId}/public/data/orders`;
+                    
+                    await addDoc(collection(db, ordersCollectionPath), {
+                        ...invoice,
+                        userId: window.userId,
+                        timestamp: serverTimestamp(),
+                        status: 'Pending'
+                    });
+                    console.log("Order successfully saved to Firestore with ID:", invoiceId);
+                } catch (e) {
+                    console.error("Error saving order to Firestore: ", e);
+                }
+            } else {
+                 console.warn("Firestore not fully initialized. Order not saved to database.");
+            }
+
+            // --- 3. Generate WhatsApp Message (Updated for full line bolding) ---
+            let whatsappText = `*-- TEA_RIFFIC! NEW ORDER --*\n\n`;
+            whatsappText += `*INVOICE ID:* ${invoiceId}\n`;
+            whatsappText += `*TIME/DATE:* ${time} on ${date}\n`;
+            whatsappText += `*CUSTOMER:* ${name.toUpperCase()}\n`;
+            whatsappText += `*TABLE/TYPE:* ${tableNo}\n\n`;
+            whatsappText += `*ITEMS:*\n`;
+
+            orderedItems.forEach(item => {
+                // CHANGE: Bolding the entire item line, including quantity and subtotal.
+                whatsappText += `- *${item.quantity} x ${item.label.toUpperCase()} (₹${item.subtotal})*\n`;
+            });
+
+            whatsappText += `\n*SUBTOTAL: ₹${subtotal}*`;
+            if (IS_TAKEAWAY) {
+                whatsappText += `\n*PACKING CHARGE (${totalCount} ITEMS @ ₹${PACKING_CHARGE_PER_ITEM}): ₹${packingCharge}*`;
+            }
+            whatsappText += `\n\n*GRAND TOTAL: ₹${grandTotal}*`;
+            whatsappText += `\n\n_Please process this order quickly._`;
+            
+            const whatsappLink = `https://wa.me/919707886631?text=${encodeURIComponent(whatsappText)}`;
+
+            // Automatically open WhatsApp link
+            window.open(whatsappLink, '_blank');
+
+            // --- 4. Display Invoice Modal ---
+            displayInvoice(invoice, whatsappLink);
+        }
+
+        /**
+         * Populates and displays the Invoice modal.
+         */
+        function displayInvoice(invoice, whatsappLink) {
+            document.getElementById('whatsapp-link-btn').href = whatsappLink;
+
+            const detailsHTML = `
+                <p><strong>Invoice ID:</strong> ${invoice.invoiceId}</p>
+                <p><strong>Date & Time:</strong> ${invoice.date} | ${invoice.time}</p>
+                <p><strong>Name:</strong> ${invoice.customerName}</p>
+                <p><strong>Table/Type:</strong> <span class="text-red-500 font-semibold">${invoice.tableNumber}</span></p>
+                <p><strong>Mobile No. (Owner):</strong> ${invoice.phoneNumber}</p>
+            `;
+            document.getElementById('invoice-details').innerHTML = detailsHTML;
+
+            const itemsHTML = invoice.items.map(item => `
+                <div class="flex justify-between">
+                    <span class="text-gray-700">${item.quantity}x ${item.label}</span>
+                    <span class="font-medium">₹${item.subtotal}</span>
+                </div>
+            `).join('');
+            document.getElementById('invoice-items').innerHTML = itemsHTML;
+
+            // Update Breakdown Section
+            document.getElementById('invoice-subtotal').textContent = `₹${invoice.subtotal}`;
+            document.getElementById('invoice-total').textContent = `₹${invoice.total}`;
+
+            const packingChargeRow = document.getElementById('invoice-packing-charge-row');
+            if (invoice.packingCharge > 0) {
+                packingChargeRow.classList.remove('hidden');
+                document.getElementById('item-count').textContent = invoice.totalCount;
+                document.getElementById('invoice-packing-charge').textContent = `₹${invoice.packingCharge}`;
+            } else {
+                packingChargeRow.classList.add('hidden');
+            }
+
+
+            openModal('invoice-modal');
+
+            // Clear the cart after confirmation
+            cart = [];
+            updateCartUI();
+        }
+
+        // Initialize cart UI on load
+        window.addEventListener('load', updateCartUI);
+    </script>
+</body>
+</html>
